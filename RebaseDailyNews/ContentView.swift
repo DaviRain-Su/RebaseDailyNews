@@ -1,88 +1,187 @@
-//
-//  ContentView.swift
-//  RebaseDailyNews
-//
-//  Created by davirian on 2024/9/1.
-//
-
 import SwiftUI
-import CoreData
+import Foundation
+import Combine
 
-struct ContentView: View {
-    @Environment(\.managedObjectContext) private var viewContext
-
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
-        animation: .default)
-    private var items: FetchedResults<Item>
-
+struct NewsItemView: View {
+    let newsItem: NewsItemDTO
+    
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
-                    } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-#endif
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-            Text("Select an item")
+        VStack(alignment: .leading) {
+            Text(newsItem.title)
+                .font(.headline)
+            Text(newsItem.introduce)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Text(newsItem.time, style: .date)
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
+}
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
-        }
+struct NewsItemDTO: Identifiable, Codable {
+    let id: Int
+    let attributes: NewsItemAttributes
+    
+    var title: String { attributes.title }
+    var url: String { attributes.url }
+    var time: Date {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        return dateFormatter.date(from: attributes.time) ?? Date()
     }
+    var introduce: String { attributes.introduce ?? "" }
+}
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
+struct NewsResponse: Codable {
+    let data: [NewsItemDTO]?
+    let error: NewsError?
+    let meta: NewsMeta?
+}
 
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+struct NewsMeta: Codable {
+    let pagination: Pagination
+}
+
+struct Pagination: Codable {
+    let page: Int
+    let pageSize: Int
+    let pageCount: Int
+    let total: Int
+}
+
+struct NewsError: Codable {
+    let status: Int
+    let name: String
+    let message: String
+}
+
+struct NewsItemAttributes: Codable {
+    let title: String
+    let url: String
+    let time: String
+    let introduce: String?
+}
+
+class NewsViewModel: ObservableObject {
+    @Published var newsItems: [NewsItemDTO] = []
+    @Published var searchQuery = ""
+    
+    private var allNewsItems: [NewsItemDTO] = []
+    private var cancellables = Set<AnyCancellable>()
+    
+    func fetchNewsItems() {
+        guard let url = URL(string: "https://db.rebase.network/api/v1/geekdailies") else {
+            return
+        }
+        
+        var allItems: [NewsItemDTO] = []
+        var page = 1
+        let pageSize = 100
+        var retryCount = 0
+        let maxRetryCount = 3
+        
+        func fetchPage() {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = [
+                URLQueryItem(name: "pagination[page]", value: "\(page)"),
+                URLQueryItem(name: "pagination[pageSize]", value: "\(pageSize)")
+            ]
+            
+            guard let pageURL = components?.url else {
+                print("Invalid URL")
+                return
+            }
+            
+            URLSession.shared.dataTaskPublisher(for: pageURL)
+                .map { $0.data }
+                .receive(on: DispatchQueue.main)
+                .sink { completion in
+                    switch completion {
+                    case .failure(let error):
+                        print("Error fetching news items: \(error)")
+                    case .finished:
+                        break
+                    }
+                } receiveValue: { data in
+                    if let jsonString = String(data: data, encoding: .utf8) {
+                        print("Received JSON response: \(jsonString)")
+                    }
+                    
+                    do {
+                        let newsResponse = try JSONDecoder().decode(NewsResponse.self, from: data)
+                        
+                        if let error = newsResponse.error {
+                            print("API returned an error: \(error.status) - \(error.name) - \(error.message)")
+                            
+                            if error.status == 500 && retryCount < maxRetryCount {
+                                retryCount += 1
+                                print("Retrying request in 5 seconds... (Retry count: \(retryCount))")
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                                    fetchPage()
+                                }
+                            }
+                            
+                            return
+                        }
+                        
+                        let newsItems = newsResponse.data ?? []
+                        allItems.append(contentsOf: newsItems)
+                        
+                        if let meta = newsResponse.meta {
+                            print("Pagination: page \(meta.pagination.page), pageSize \(meta.pagination.pageSize), total \(meta.pagination.total)")
+                        }
+                        
+                        let totalItems = self.allNewsItems.count + newsItems.count
+                        print("Fetched \(newsItems.count) news items, total: \(totalItems)")
+                        
+                        if newsItems.count == pageSize {
+                            page += 1
+                            fetchPage()
+                        } else {
+                            print("Total items fetched: \(allItems.count)")
+                            let sortedNewsItems = allItems.sorted { $0.time > $1.time }
+                            self.allNewsItems = sortedNewsItems
+                            self.newsItems = sortedNewsItems
+                        }
+                    } catch {
+                        print("Error decoding JSON: \(error)")
+                    }
+                }
+                .store(in: &self.cancellables)
+        }
+        
+        fetchPage()
+    }
+    
+    func searchNewsItems() {
+        if searchQuery.isEmpty {
+            newsItems = allNewsItems
+        } else {
+            newsItems = allNewsItems.filter { item in
+                item.title.localizedCaseInsensitiveContains(searchQuery) ||
+                item.introduce.localizedCaseInsensitiveContains(searchQuery)
             }
         }
     }
 }
 
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
-
-#Preview {
-    ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+struct ContentView: View {
+    @StateObject private var viewModel = NewsViewModel()
+    
+    var body: some View {
+        NavigationView {
+            List(viewModel.newsItems) { item in
+                NewsItemView(newsItem: item)
+            }
+            .navigationTitle("Rebase Daily News")
+            .searchable(text: $viewModel.searchQuery)
+            .onChange(of: viewModel.searchQuery) {
+                viewModel.searchNewsItems()
+            }
+            .onAppear {
+                viewModel.fetchNewsItems()
+            }
+        }
+    }
 }
