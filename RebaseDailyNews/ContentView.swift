@@ -1,20 +1,23 @@
 import SwiftUI
 import Foundation
 import Combine
+import WebKit
 
 struct NewsItemView: View {
     let newsItem: NewsItemDTO
     
     var body: some View {
-        VStack(alignment: .leading) {
-            Text(newsItem.title)
-                .font(.headline)
-            Text(newsItem.introduce)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Text(newsItem.time, style: .date)
-                .font(.caption)
-                .foregroundColor(.secondary)
+        NavigationLink(destination: WebView(url: URL(string: newsItem.url)!)) {
+            VStack(alignment: .leading) {
+                Text(newsItem.title)
+                    .font(.headline)
+                Text(newsItem.introduce)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text(newsItem.time, style: .date)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 }
@@ -166,6 +169,19 @@ class NewsViewModel: ObservableObject {
     }
 }
 
+struct WebView: UIViewRepresentable {
+    let url: URL
+    
+    func makeUIView(context: Context) -> WKWebView {
+        return WKWebView()
+    }
+    
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        let request = URLRequest(url: url)
+        uiView.load(request)
+    }
+}
+
 struct ContentView: View {
     @StateObject private var viewModel = NewsViewModel()
     
@@ -175,6 +191,7 @@ struct ContentView: View {
                 NewsItemView(newsItem: item)
             }
             .navigationTitle("Rebase Daily News")
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $viewModel.searchQuery)
             .onChange(of: viewModel.searchQuery) {
                 viewModel.searchNewsItems()
