@@ -99,13 +99,15 @@ class NewsViewModel: ObservableObject {
         let maxRetryCount = 3
         
         func fetchPage() {
-            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.queryItems = [
-                URLQueryItem(name: "pagination[page]", value: "\(page)"),
-                URLQueryItem(name: "pagination[pageSize]", value: "\(pageSize)")
-            ]
+            var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
             
-            guard let pageURL = components?.url else {
+            let pageQueryItem = URLQueryItem(name: "pagination[page]", value: "\(page)")
+            let pageSizeQueryItem = URLQueryItem(name: "pagination[pageSize]", value: "\(pageSize)")
+            
+            urlComponents?.queryItems = [pageQueryItem, pageSizeQueryItem]
+            
+            guard let encodedURL = urlComponents?.url?.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                  let pageURL = URL(string: encodedURL) else {
                 print("Invalid URL")
                 return
             }
