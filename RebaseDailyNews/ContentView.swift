@@ -202,6 +202,7 @@ class NewsViewModel: ObservableObject {
     }
 }
 
+#if os(iOS)
 struct WebView: UIViewRepresentable {
     let url: URL
     
@@ -214,6 +215,20 @@ struct WebView: UIViewRepresentable {
         uiView.load(request)
     }
 }
+#elseif os(macOS)
+struct WebView: NSViewRepresentable {
+    let url: URL
+    
+    func makeNSView(context: Context) -> WKWebView {
+        return WKWebView()
+    }
+    
+    func updateNSView(_ nsView: WKWebView, context: Context) {
+        let request = URLRequest(url: url)
+        nsView.load(request)
+    }
+}
+#endif
 
 struct ContentView: View {
     @StateObject private var viewModel = NewsViewModel()
@@ -224,7 +239,9 @@ struct ContentView: View {
                 NewsItemView(newsItem: item)
             }
             .navigationTitle("Rebase Daily News")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .searchable(text: $viewModel.searchQuery)
             .onChange(of: viewModel.searchQuery) {
                 viewModel.searchNewsItems()

@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "Generate_an_iOS_app_logo_for_Rebase_Daily_News_in_the_following_sizes_1024pt_16pt_32pt_128pt_and_256pt_The_logo_should_have_a_modern_clean_and_minimalistic_design_Incorporate_elements_related_to_news_and_daily_updates_such_as_a_newspaper_a_globe_or_a.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -38,11 +39,6 @@
     {
       "idiom" : "mac",
       "scale" : "1x",
-      "size" : "256x256"
-    },
-    {
-      "idiom" : "mac",
-      "scale" : "2x",
       "size" : "256x256"
     },
     {
