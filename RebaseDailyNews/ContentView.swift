@@ -72,8 +72,22 @@ class NewsViewModel: ObservableObject {
     
     private var allNewsItems: [NewsItemDTO] = []
     private var cancellables = Set<AnyCancellable>()
-    
+
     func fetchNewsItems() {
+        // 检查上次更新时间
+        let lastUpdated = UserDefaults.standard.object(forKey: "lastUpdated") as? Date
+        let currentDate = Date()
+        
+        if let lastUpdated = lastUpdated, Calendar.current.isDate(lastUpdated, inSameDayAs: currentDate) {
+            // 如果在同一天,从缓存加载数据
+            loadNewsItemsFromCache()
+        } else {
+            // 如果不在同一天或没有缓存数据,从服务器获取数据
+            fetchNewsItemsFromAPI()
+        }
+    }
+    
+    func fetchNewsItemsFromAPI() {
         guard let url = URL(string: "https://db.rebase.network/api/v1/geekdailies") else {
             return
         }
@@ -146,6 +160,7 @@ class NewsViewModel: ObservableObject {
                             let sortedNewsItems = allItems.sorted { $0.time > $1.time }
                             self.allNewsItems = sortedNewsItems
                             self.newsItems = sortedNewsItems
+                            self.saveNewsItemsToCache(sortedNewsItems)
                         }
                     } catch {
                         print("Error decoding JSON: \(error)")
@@ -165,6 +180,24 @@ class NewsViewModel: ObservableObject {
                 item.title.localizedCaseInsensitiveContains(searchQuery) ||
                 item.introduce.localizedCaseInsensitiveContains(searchQuery)
             }
+        }
+    }
+    
+    func loadNewsItemsFromCache() {
+        if let data = UserDefaults.standard.data(forKey: "cachedNewsItems") {
+            let decoder = JSONDecoder()
+            if let cachedNewsItems = try? decoder.decode([NewsItemDTO].self, from: data) {
+                self.allNewsItems = cachedNewsItems
+                self.newsItems = cachedNewsItems
+            }
+        }
+    }
+    
+    func saveNewsItemsToCache(_ newsItems: [NewsItemDTO]) {
+        let encoder = JSONEncoder()
+        if let encodedData = try? encoder.encode(newsItems) {
+            UserDefaults.standard.set(encodedData, forKey: "cachedNewsItems")
+            UserDefaults.standard.set(Date(), forKey: "lastUpdated")
         }
     }
 }
