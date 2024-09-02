@@ -81,6 +81,13 @@ class NewsViewModel: ObservableObject {
         if let lastUpdated = lastUpdated, Calendar.current.isDate(lastUpdated, inSameDayAs: currentDate) {
             // 如果在同一天,从缓存加载数据
             loadNewsItemsFromCache()
+            
+            // 检查缓存中的数据量是否足够
+            if allNewsItems.count < 100 {
+                // 如果缓存中的数据量不足,重置缓存并重新获取数据
+                resetCache()
+                fetchNewsItemsFromAPI()
+            }
         } else {
             // 如果不在同一天或没有缓存数据,从服务器获取数据
             fetchNewsItemsFromAPI()
@@ -92,22 +99,19 @@ class NewsViewModel: ObservableObject {
             return
         }
         
-        var allItems: [NewsItemDTO] = []
         var page = 1
         let pageSize = 100
         var retryCount = 0
         let maxRetryCount = 3
         
         func fetchPage() {
-            var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = [
+                URLQueryItem(name: "pagination[page]", value: "\(page)"),
+                URLQueryItem(name: "pagination[pageSize]", value: "\(pageSize)")
+            ]
             
-            let pageQueryItem = URLQueryItem(name: "pagination[page]", value: "\(page)")
-            let pageSizeQueryItem = URLQueryItem(name: "pagination[pageSize]", value: "\(pageSize)")
-            
-            urlComponents?.queryItems = [pageQueryItem, pageSizeQueryItem]
-            
-            guard let encodedURL = urlComponents?.url?.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                  let pageURL = URL(string: encodedURL) else {
+            guard let pageURL = components?.url else {
                 print("Invalid URL")
                 return
             }
@@ -145,24 +149,21 @@ class NewsViewModel: ObservableObject {
                         }
                         
                         let newsItems = newsResponse.data ?? []
-                        allItems.append(contentsOf: newsItems)
+                        self.allNewsItems.append(contentsOf: newsItems)
+                        self.newsItems = self.allNewsItems.sorted { $0.time > $1.time }
                         
                         if let meta = newsResponse.meta {
                             print("Pagination: page \(meta.pagination.page), pageSize \(meta.pagination.pageSize), total \(meta.pagination.total)")
                         }
                         
-                        let totalItems = self.allNewsItems.count + newsItems.count
-                        print("Fetched \(newsItems.count) news items, total: \(totalItems)")
+                        print("Fetched \(newsItems.count) news items, total: \(self.newsItems.count)")
                         
                         if newsItems.count == pageSize {
                             page += 1
                             fetchPage()
                         } else {
-                            print("Total items fetched: \(allItems.count)")
-                            let sortedNewsItems = allItems.sorted { $0.time > $1.time }
-                            self.allNewsItems = sortedNewsItems
-                            self.newsItems = sortedNewsItems
-                            self.saveNewsItemsToCache(sortedNewsItems)
+                            print("Total items fetched: \(self.allNewsItems.count)")
+                            self.saveNewsItemsToCache(self.allNewsItems)
                         }
                     } catch {
                         print("Error decoding JSON: \(error)")
@@ -191,7 +192,12 @@ class NewsViewModel: ObservableObject {
             if let cachedNewsItems = try? decoder.decode([NewsItemDTO].self, from: data) {
                 self.allNewsItems = cachedNewsItems
                 self.newsItems = cachedNewsItems
+                print("Loaded \(cachedNewsItems.count) news items from cache")
+            } else {
+                print("Failed to decode cached news items")
             }
+        } else {
+            print("No cached news items found")
         }
     }
     
@@ -200,7 +206,18 @@ class NewsViewModel: ObservableObject {
         if let encodedData = try? encoder.encode(newsItems) {
             UserDefaults.standard.set(encodedData, forKey: "cachedNewsItems")
             UserDefaults.standard.set(Date(), forKey: "lastUpdated")
+            print("Saved \(newsItems.count) news items to cache")
+        } else {
+            print("Failed to encode news items for caching")
         }
+    }
+    
+    func resetCache() {
+        UserDefaults.standard.removeObject(forKey: "cachedNewsItems")
+        UserDefaults.standard.removeObject(forKey: "lastUpdated")
+        allNewsItems.removeAll()
+        newsItems.removeAll()
+        print("Cache reset")
     }
 }
 
