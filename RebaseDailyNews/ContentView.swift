@@ -8,16 +8,29 @@ struct NewsItemView: View {
     
     var body: some View {
         NavigationLink(destination: WebView(url: URL(string: newsItem.url)!)) {
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(newsItem.title)
                     .font(.headline)
+                    .foregroundColor(.primary)
+                
                 Text(newsItem.introduce)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                Text(newsItem.time, style: .date)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                
+                HStack {
+                    Text(newsItem.time, style: .date)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
+            .padding(.vertical, 8)
         }
     }
 }
@@ -72,7 +85,7 @@ class NewsViewModel: ObservableObject {
     
     private var allNewsItems: [NewsItemDTO] = []
     private var cancellables = Set<AnyCancellable>()
-
+    
     func fetchNewsItems() {
         // 检查上次更新时间
         let lastUpdated = UserDefaults.standard.object(forKey: "lastUpdated") as? Date
@@ -82,7 +95,7 @@ class NewsViewModel: ObservableObject {
             // 如果在同一天,从缓存加载数据
             loadNewsItemsFromCache()
             
-            // 检查缓存中的数据量是否足够
+            // 检查缓存中数据量是否足够
             if allNewsItems.count < 100 {
                 // 如果缓存中的数据量不足,重置缓存并重新获取数据
                 resetCache()
@@ -219,6 +232,15 @@ class NewsViewModel: ObservableObject {
         newsItems.removeAll()
         print("Cache reset")
     }
+    
+    func sortNewsItems(by sortOrder: SortOrder) {
+        switch sortOrder {
+        case .ascending:
+            newsItems.sort { $0.time < $1.time }
+        case .descending:
+            newsItems.sort { $0.time > $1.time }
+        }
+    }
 }
 
 #if os(iOS)
@@ -251,6 +273,7 @@ struct WebView: NSViewRepresentable {
 
 struct ContentView: View {
     @StateObject private var viewModel = NewsViewModel()
+    @State private var selectedSortOrder: SortOrder = .descending
     
     var body: some View {
         NavigationView {
@@ -265,9 +288,32 @@ struct ContentView: View {
             .onChange(of: viewModel.searchQuery) {
                 viewModel.searchNewsItems()
             }
+            .refreshable {
+                viewModel.fetchNewsItems()
+            }
             .onAppear {
                 viewModel.fetchNewsItems()
             }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Picker("Sort Order", selection: $selectedSortOrder) {
+                            Text("Ascending").tag(SortOrder.ascending)
+                            Text("Descending").tag(SortOrder.descending)
+                        }
+                        .onChange(of: selectedSortOrder) { _ in
+                            viewModel.sortNewsItems(by: selectedSortOrder)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                }
+            }
         }
     }
+}
+
+enum SortOrder {
+    case ascending
+    case descending
 }
