@@ -87,22 +87,25 @@ class NewsViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     
     func fetchNewsItems() {
-        // 检查上次更新时间
-        let lastUpdated = UserDefaults.standard.object(forKey: "lastUpdated") as? Date
-        let currentDate = Date()
-        
-        if let lastUpdated = lastUpdated, Calendar.current.isDate(lastUpdated, inSameDayAs: currentDate) {
-            // 如果在同一天,从缓存加载数据
-            loadNewsItemsFromCache()
+        // 获取缓存中最新的新闻项的时间
+        if let lastItemTime = allNewsItems.last?.time {
+            let calendar = Calendar.current
+            let currentDate = Date()
             
-            // 检查缓存中数据量是否足够
-            if allNewsItems.count < 100 {
-                // 如果缓存中的数据量不足,重置缓存并重新获取数据
-                resetCache()
+            // 计算当前日期的前一天
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
+                return
+            }
+            
+            // 如果缓存中最新的新闻项的时间早于前一天,则从服务器获取最新数据
+            if lastItemTime < previousDay {
                 fetchNewsItemsFromAPI()
+            } else {
+                // 从缓存加载数据
+                loadNewsItemsFromCache()
             }
         } else {
-            // 如果不在同一天或没有缓存数据,从服务器获取数据
+            // 如果缓存为空,则从服务器获取最新数据
             fetchNewsItemsFromAPI()
         }
     }
@@ -172,9 +175,13 @@ class NewsViewModel: ObservableObject {
                         print("Fetched \(newsItems.count) news items, total: \(self.newsItems.count)")
                         
                         if newsItems.count == pageSize {
+                            // 如果获取的数据数量等于分页大小,说明可能还有更多数据
+                            // 可以在此处实现延迟加载的逻辑,例如在用户滚动到列表底部时再触发下一页的加载
+                            // 这里简单地递增页码,继续获取下一页数据
                             page += 1
                             fetchPage()
                         } else {
+                            // 数据获取完成
                             print("Total items fetched: \(self.allNewsItems.count)")
                             self.saveNewsItemsToCache(self.allNewsItems)
                         }
